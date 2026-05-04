@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\QueryVisualizerController;
+use App\Http\Controllers\PlaygroundController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', QueryVisualizerController::class)->name('queries.index');
+Route::get('/', PlaygroundController::class)->name('playground');
