@@ -5,9 +5,11 @@ import {
     createEditorActions,
     prepareSnippetInsertion,
 } from "../Composables/useEditorActions.js";
+import { highlight } from "../Composables/useSqlHighlighter.js";
 
 const { rawSQL, dbSchema } = usePlayground();
-const editorRef = ref(null);
+const editorRef    = ref(null);
+const highlightRef = ref(null);
 const lastSelection = ref({
     start: rawSQL.value.length,
     end: rawSQL.value.length,
@@ -125,7 +127,17 @@ function insertSnippet(snippet) {
 
 const editorActions = createEditorActions(insertSnippet);
 
-// Insert two spaces on Tab; Shift+Tab unindents.
+// ─── Syntax highlighting ───────────────────────────────────────
+const highlightedHTML = computed(() => highlight(rawSQL.value));
+
+function syncScroll(e) {
+    const hl = highlightRef.value;
+    if (!hl) return;
+    hl.scrollTop  = e.target.scrollTop;
+    hl.scrollLeft = e.target.scrollLeft;
+}
+
+// ─── Line / error counts ──────────────────────────────────────
 function handleKeydown(e) {
     if (e.key !== "Tab") return;
     e.preventDefault();
@@ -159,7 +171,7 @@ function handleKeydown(e) {
     });
 }
 
-const lineCount = computed(() => rawSQL.value.split("\n").length);
+const lineCount  = computed(() => rawSQL.value.split("\n").length);
 const errorCount = computed(() => dbSchema.value.errors.length);
 </script>
 
@@ -218,21 +230,34 @@ const errorCount = computed(() => dbSchema.value.errors.length);
                 </div>
             </div>
 
-            <textarea
-                ref="editorRef"
-                v-model="rawSQL"
-                @keydown="handleKeydown"
-                @click="updateLastSelection"
-                @input="updateLastSelection"
-                @keyup="updateLastSelection"
-                @select="updateLastSelection"
-                spellcheck="false"
-                autocomplete="off"
-                autocorrect="off"
-                autocapitalize="off"
-                wrap="off"
-                class="sql-pre flex-1 resize-none overflow-auto bg-transparent px-4 py-4 text-ink focus:outline-none"
-            ></textarea>
+            <!-- Highlight overlay + textarea wrapper -->
+            <div class="relative flex-1 overflow-hidden">
+                <!-- Rendered highlight layer (behind textarea) -->
+                <div
+                    ref="highlightRef"
+                    aria-hidden="true"
+                    class="hl-layer sql-pre"
+                    v-html="highlightedHTML"
+                ></div>
+
+                <!-- Editing surface (transparent text → shows layer below) -->
+                <textarea
+                    ref="editorRef"
+                    v-model="rawSQL"
+                    @keydown="handleKeydown"
+                    @click="updateLastSelection"
+                    @input="updateLastSelection"
+                    @keyup="updateLastSelection"
+                    @select="updateLastSelection"
+                    @scroll="syncScroll"
+                    spellcheck="false"
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    wrap="off"
+                    class="sql-pre sql-textarea absolute inset-0 resize-none overflow-auto bg-transparent px-4 py-4 focus:outline-none"
+                ></textarea>
+            </div>
         </div>
     </div>
 </template>

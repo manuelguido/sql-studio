@@ -33,6 +33,15 @@
     --color-ok: #6cc28a;
     --color-warn: #d8a657;
     --color-err: #e07a7a;
+
+    /* Syntax highlighting palette (restrained, JetBrains-ish) */
+    --hl-keyword:  #7eb3f5;   /* soft blue — DML / DDL keywords */
+    --hl-type:     #4ec9b0;   /* muted teal — data types */
+    --hl-string:   #87c77a;   /* soft green — string literals */
+    --hl-number:   #d8a657;   /* warm amber — numeric literals */
+    --hl-comment:  #4c505a;   /* low-contrast gray — comments */
+    --hl-operator: #b3b4b8;   /* light gray — operators */
+    --hl-punct:    #5a5c63;   /* dim gray — punctuation */
 }
 
 @layer base {
@@ -115,5 +124,47 @@
     .focus-ring:focus-visible {
         outline: none;
         box-shadow: 0 0 0 1px var(--color-accent), 0 0 0 3px var(--color-accent-soft);
+    }
+
+    /* ─── Syntax highlight token classes ──────────────────────── */
+    /* Applied to <span> elements emitted by useSqlHighlighter.js */
+
+    .hl-keyword  { color: var(--hl-keyword); }
+    .hl-type     { color: var(--hl-type); }
+    .hl-string   { color: var(--hl-string); }
+    .hl-number   { color: var(--hl-number); }
+    .hl-comment  { color: var(--hl-comment); font-style: italic; }
+    .hl-operator { color: var(--hl-operator); }
+    .hl-punct    { color: var(--hl-punct); }
+
+    /* ─── Highlight overlay (behind the textarea) ─────────────── */
+    .hl-layer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        /* overflow: scroll + hidden scrollbars lets scrollTop/Left sync work */
+        overflow: scroll;
+        scrollbar-width: none;           /* Firefox */
+        padding: 1rem;                   /* must match textarea px-4 py-4  */
+        white-space: pre;                /* mirrors wrap="off" */
+        overflow-wrap: normal;
+        word-break: normal;
+        color: var(--color-ink);
+        tab-size: 2;
+        border: 0;
+        margin: 0;
+    }
+    .hl-layer::-webkit-scrollbar { display: none; }
+
+    /* ─── Editing layer: transparent text, visible caret ──────── */
+    .sql-textarea {
+        color: transparent;
+        -webkit-text-fill-color: transparent;
+        caret-color: var(--color-ink);
+    }
+    /* Keep selection background visible; suppress text color override */
+    .sql-textarea::selection {
+        color: transparent;
+        -webkit-text-fill-color: transparent;
     }
 }
