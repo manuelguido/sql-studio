@@ -2,12 +2,12 @@ import { computed, ref, watch } from 'vue';
 import { parseSql } from './useSqlParser.js';
 
 // ─── localStorage keys ─────────────────────────────────────────
-const LS_RAW   = 'querylens.rawSQL';
-const LS_SAVED = 'querylens.savedSQL';
-const LS_UI    = 'querylens.uiState';
+const LS_RAW   = 'query-lens.rawSQL';
+const LS_SAVED = 'query-lens.savedSQL';
+const LS_UI    = 'query-lens.uiState';
 
 // ─── Default sample (used on first visit) ──────────────────────
-const SAMPLE_SQL = `-- QueryLens — SQL Playground
+const SAMPLE_SQL = `-- Query Lens — SQL Playground
 -- Edit, save, and visualize your schema.
 
 CREATE TABLE users (

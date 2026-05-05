@@ -32,7 +32,7 @@ function confirmCancel() {
         <div class="flex items-center gap-4">
             <div class="flex items-center gap-2">
                 <span class="h-2 w-2 rounded-full bg-[color:var(--color-accent)]"></span>
-                <span class="font-mono text-[12px] font-medium tracking-tight text-[color:var(--color-ink)]">QueryLens</span>
+                <span class="font-mono text-[12px] font-medium tracking-tight text-[color:var(--color-ink)]">Query Lens</span>
             </div>
             <span class="h-3 w-px bg-[color:var(--color-line-strong)]"></span>
             <span class="label">SQL Playground</span>

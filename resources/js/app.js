@@ -4,7 +4,7 @@ import { createInertiaApp } from '@inertiajs/vue3';
 import { createApp, h } from 'vue';
 
 createInertiaApp({
-	title: (title) => `${title} · QueryLens`,
+	title: (title) => `${title} · Query Lens`,
 	resolve: (name) => {
 		const pages = import.meta.glob('./Pages/**/*.vue', { eager: true });
 
