@@ -1,23 +1,38 @@
 <script setup>
 /**
- * SchemaGraph — pure renderer for `dbSchema`.
- * - Auto-layouts tables in a grid by default
- * - Drag-to-reposition (positions persisted via usePlayground.setPosition)
- * - Renders FK relationships as bezier connectors
+ * SchemaGraph — visual schema renderer + design-mode editor.
+ *
+ * Inspect mode: read-only canvas with drag-to-reposition.
+ * Design mode:  + column anchors, drag-to-create FK, edge selection.
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { usePlayground } from '../Composables/usePlayground.js';
+import { useSchemaEditor } from '../Composables/useSchemaEditor.js';
 
-const { dbSchema, uiState, selectTable, setPosition } = usePlayground();
+const {
+    dbSchema,
+    uiState,
+    mode,
+    selectTable,
+    selectRelation,
+    setPosition,
+} = usePlayground();
 
-// ── Layout ─────────────────────────────────────────────────────
+const { addForeignKey, removeForeignKey } = useSchemaEditor();
+
+// ── Layout constants ───────────────────────────────────────────
 const NODE_WIDTH    = 240;
 const NODE_GAP_X    = 80;
 const NODE_GAP_Y    = 60;
-const NODE_BASE_H   = 40;        // header
-const ROW_HEIGHT    = 24;        // per column
+const NODE_BASE_H   = 40;
+const ROW_HEIGHT    = 28;       // per column
+const HEADER_HEIGHT = 36;
+const GRID_SNAP     = 8;
 
-/** Default position for a table not yet placed by the user. */
+function snap(v) {
+    return Math.round(v / GRID_SNAP) * GRID_SNAP;
+}
+
 function defaultPosition(index, total) {
     const cols = Math.max(1, Math.ceil(Math.sqrt(total || 1)));
     const col  = index % cols;
@@ -28,7 +43,6 @@ function defaultPosition(index, total) {
     };
 }
 
-/** Resolved positions for all tables (user-set or auto). */
 const positions = computed(() => {
     const map = {};
     dbSchema.value.tables.forEach((t, i) => {
@@ -38,14 +52,19 @@ const positions = computed(() => {
     return map;
 });
 
-/** Node refs for edge geometry. */
+// ── Node refs (for measuring) ──────────────────────────────────
 const nodeRefs = {};
 function setNodeRef(name, el) {
     if (el) nodeRefs[name] = el;
     else delete nodeRefs[name];
 }
 
-// ── Edges (recomputed on schema/position change) ───────────────
+// Column-row index → vertical offset within a node.
+function columnRowY(colIndex) {
+    return HEADER_HEIGHT + colIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
+}
+
+// ── Edges ──────────────────────────────────────────────────────
 const edges = ref([]);
 
 async function computeEdges() {
@@ -53,32 +72,40 @@ async function computeEdges() {
     const next = [];
 
     for (const table of dbSchema.value.tables) {
+        const sourcePos = positions.value[table.name];
+        if (!sourcePos) continue;
+
+        const sourceEl = nodeRefs[table.name];
+        const sw = sourceEl?.offsetWidth  ?? NODE_WIDTH;
+
         for (const fk of table.foreignKeys) {
-            const source = positions.value[table.name];
-            const target = positions.value[fk.refTable];
-            if (!source || !target) continue;
+            const targetPos = positions.value[fk.refTable];
+            if (!targetPos) continue;
+            const targetTable = dbSchema.value.tables.find((t) => t.name === fk.refTable);
+            if (!targetTable) continue;
 
-            const sourceEl = nodeRefs[table.name];
             const targetEl = nodeRefs[fk.refTable];
-            const sw = sourceEl?.offsetWidth  ?? NODE_WIDTH;
-            const sh = sourceEl?.offsetHeight ?? NODE_BASE_H + ROW_HEIGHT;
             const tw = targetEl?.offsetWidth  ?? NODE_WIDTH;
-            const th = targetEl?.offsetHeight ?? NODE_BASE_H + ROW_HEIGHT;
 
-            const goRight = source.x + sw / 2 < target.x + tw / 2;
+            const sIdx = table.columns.findIndex((c) => c.name === fk.column);
+            const tIdx = targetTable.columns.findIndex((c) => c.name === fk.refColumn);
+            const sy = sourcePos.y + columnRowY(sIdx >= 0 ? sIdx : 0);
+            const ty = targetPos.y + columnRowY(tIdx >= 0 ? tIdx : 0);
 
-            const x1 = source.x + (goRight ? sw : 0);
-            const y1 = source.y + sh / 2;
-            const x2 = target.x + (goRight ? 0 : tw);
-            const y2 = target.y + th / 2;
-            const cx = (x1 + x2) / 2;
+            const goRight = sourcePos.x + sw / 2 < targetPos.x + tw / 2;
+            const x1 = sourcePos.x + (goRight ? sw : 0);
+            const x2 = targetPos.x + (goRight ? 0 : tw);
+            const cx1 = x1 + (goRight ? 60 : -60);
+            const cx2 = x2 + (goRight ? -60 : 60);
 
             next.push({
-                key: `${table.name}.${fk.column}→${fk.refTable}.${fk.refColumn}`,
+                key: `${table.name}.${fk.column}->${fk.refTable}.${fk.refColumn}`,
                 from: table.name,
                 to:   fk.refTable,
-                d:    `M ${x1} ${y1} C ${cx} ${y1} ${cx} ${y2} ${x2} ${y2}`,
-                x1, y1, x2, y2,
+                column: fk.column,
+                refColumn: fk.refColumn,
+                d:    `M ${x1} ${sy} C ${cx1} ${sy} ${cx2} ${ty} ${x2} ${ty}`,
+                x1, y1: sy, x2, y2: ty, goRight,
             });
         }
     }
@@ -90,11 +117,11 @@ watch(() => dbSchema.value, () => computeEdges(), { deep: true });
 watch(() => uiState.value.positions, () => computeEdges(), { deep: true });
 onMounted(() => computeEdges());
 
-// ── Drag ───────────────────────────────────────────────────────
-const dragging = ref(null); // { table, offsetX, offsetY }
-const canvasRef = ref(null);
+// ── Table drag ─────────────────────────────────────────────────
+const dragging = ref(null);
 
 function startDrag(table, e) {
+    if (e.button !== 0) return;
     e.preventDefault();
     selectTable(table.name);
     const pos = positions.value[table.name];
@@ -109,8 +136,8 @@ function startDrag(table, e) {
 
 function onDrag(e) {
     if (!dragging.value) return;
-    const x = Math.max(0, e.clientX - dragging.value.offsetX);
-    const y = Math.max(0, e.clientY - dragging.value.offsetY);
+    const x = Math.max(0, snap(e.clientX - dragging.value.offsetX));
+    const y = Math.max(0, snap(e.clientY - dragging.value.offsetY));
     setPosition(dragging.value.table, { x, y });
 }
 
@@ -119,10 +146,86 @@ function endDrag() {
     window.removeEventListener('pointermove', onDrag);
 }
 
-onUnmounted(() => window.removeEventListener('pointermove', onDrag));
+onUnmounted(() => {
+    window.removeEventListener('pointermove', onDrag);
+    window.removeEventListener('pointermove', onConnectMove);
+});
+
+// ── FK connection drag (design mode) ───────────────────────────
+const canvasRef  = ref(null);
+const connecting = ref(null);
+// { fromTable, fromColumn, sx, sy, mx, my, hover: { table, column } | null }
+
+function canvasPoint(e) {
+    const root = canvasRef.value;
+    if (!root) return { x: 0, y: 0 };
+    const rect = root.getBoundingClientRect();
+    return {
+        x: e.clientX - rect.left + root.scrollLeft,
+        y: e.clientY - rect.top  + root.scrollTop,
+    };
+}
+
+function startConnect(table, column, e) {
+    if (mode.value !== 'design') return;
+    e.preventDefault();
+    e.stopPropagation();
+    const pos = positions.value[table.name];
+    const colIdx = table.columns.findIndex((c) => c.name === column.name);
+    const sourceEl = nodeRefs[table.name];
+    const sw = sourceEl?.offsetWidth ?? NODE_WIDTH;
+    // Anchor on the right edge by default; we'll re-evaluate on drop.
+    const sx = pos.x + sw;
+    const sy = pos.y + columnRowY(colIdx >= 0 ? colIdx : 0);
+    const p  = canvasPoint(e);
+    connecting.value = {
+        fromTable: table.name,
+        fromColumn: column.name,
+        sx, sy,
+        mx: p.x, my: p.y,
+        hover: null,
+    };
+    window.addEventListener('pointermove', onConnectMove);
+    window.addEventListener('pointerup', endConnect, { once: true });
+}
+
+function onConnectMove(e) {
+    if (!connecting.value) return;
+    const p = canvasPoint(e);
+    connecting.value = { ...connecting.value, mx: p.x, my: p.y };
+}
+
+function targetAnchor(table, column) {
+    if (mode.value !== 'design') return;
+    if (!connecting.value) return;
+    if (connecting.value.fromTable === table.name && connecting.value.fromColumn === column.name) return;
+    connecting.value = {
+        ...connecting.value,
+        hover: { table: table.name, column: column.name },
+    };
+}
+
+function clearTargetAnchor() {
+    if (!connecting.value) return;
+    connecting.value = { ...connecting.value, hover: null };
+}
+
+function endConnect() {
+    window.removeEventListener('pointermove', onConnectMove);
+    const c = connecting.value;
+    connecting.value = null;
+    if (!c || !c.hover) return;
+    addForeignKey({
+        fromTable: c.fromTable,
+        fromColumn: c.fromColumn,
+        toTable: c.hover.table,
+        toColumn: c.hover.column,
+    });
+}
 
 // ── Highlights ─────────────────────────────────────────────────
 const selectedName = computed(() => uiState.value.selectedTable);
+const selectedRel  = computed(() => uiState.value.selectedRelation);
 
 function isRelated(tableName) {
     if (!selectedName.value) return false;
@@ -135,7 +238,52 @@ function isRelated(tableName) {
 }
 
 function edgeActive(edge) {
-    return selectedName.value && (edge.from === selectedName.value || edge.to === selectedName.value);
+    if (selectedRel.value
+        && edge.from === selectedRel.value.from
+        && edge.to === selectedRel.value.to
+        && edge.column === selectedRel.value.column
+        && edge.refColumn === selectedRel.value.refColumn) {
+        return 'selected';
+    }
+    if (selectedName.value && (edge.from === selectedName.value || edge.to === selectedName.value)) {
+        return 'related';
+    }
+    return null;
+}
+
+function pickRelation(edge, e) {
+    e.stopPropagation();
+    selectRelation({
+        from: edge.from,
+        to: edge.to,
+        column: edge.column,
+        refColumn: edge.refColumn,
+    });
+}
+
+function clearSelection(e) {
+    if (e.target === e.currentTarget || e.target.tagName === 'svg' || e.target.tagName === 'DIV') {
+        selectTable(null);
+    }
+}
+
+// ── Keyboard: Delete removes selected relation in design mode ──
+function onKeydown(e) {
+    if (mode.value !== 'design') return;
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+    const tag = (document.activeElement?.tagName || '').toUpperCase();
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (selectedRel.value) {
+        e.preventDefault();
+        removeForeignKey(selectedRel.value);
+    }
+}
+onMounted(() => window.addEventListener('keydown', onKeydown));
+onUnmounted(() => window.removeEventListener('keydown', onKeydown));
+
+// Helpers used by template
+function isFKColumn(table, columnName) {
+    return table.foreignKeys.some((fk) => fk.column === columnName);
 }
 </script>
 
@@ -149,7 +297,12 @@ function edgeActive(edge) {
             <div class="text-center">
                 <p class="font-mono text-[12px] text-[color:var(--color-ink-3)]">No tables to render.</p>
                 <p class="mt-1 font-mono text-[11px] text-[color:var(--color-ink-4)]">
-                    Add a <code class="text-[color:var(--color-ink-3)]">CREATE TABLE</code> statement on the left.
+                    <template v-if="mode === 'design'">
+                        Use <span class="text-[color:var(--color-ink-2)]">New Table</span> to start, or paste SQL into the editor.
+                    </template>
+                    <template v-else>
+                        Add a <code class="text-[color:var(--color-ink-3)]">CREATE TABLE</code> statement on the left.
+                    </template>
                 </p>
             </div>
         </div>
@@ -159,6 +312,7 @@ function edgeActive(edge) {
             v-else
             ref="canvasRef"
             class="relative flex-1 overflow-auto"
+            @click="clearSelection"
         >
             <!-- Subtle grid background -->
             <div
@@ -172,35 +326,73 @@ function edgeActive(edge) {
                 "
             ></div>
 
-            <!-- Inner canvas (large enough to hold any layout) -->
+            <!-- Inner canvas -->
             <div class="relative" style="min-width: 2400px; min-height: 1600px;">
                 <!-- SVG edges layer -->
                 <svg
-                    class="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
+                    class="absolute inset-0 h-full w-full overflow-visible"
+                    :class="connecting ? 'pointer-events-none' : ''"
                     aria-hidden="true"
                 >
-                    <path
-                        v-for="edge in edges"
-                        :key="edge.key"
-                        :d="edge.d"
-                        fill="none"
-                        :stroke="edgeActive(edge) ? 'var(--color-accent)' : 'rgba(255,255,255,0.18)'"
-                        :stroke-width="edgeActive(edge) ? 1.5 : 1"
-                        :stroke-opacity="edgeActive(edge) ? 0.9 : 0.6"
-                        stroke-dasharray="4 3"
-                    />
-                    <template v-for="edge in edges" :key="edge.key + '_dots'">
+                    <defs>
+                        <marker
+                            id="fk-arrow"
+                            viewBox="0 0 8 8"
+                            refX="6" refY="4"
+                            markerWidth="6" markerHeight="6"
+                            orient="auto-start-reverse"
+                        >
+                            <path d="M 0 0 L 8 4 L 0 8 z" fill="rgba(255,255,255,0.45)" />
+                        </marker>
+                        <marker
+                            id="fk-arrow-active"
+                            viewBox="0 0 8 8"
+                            refX="6" refY="4"
+                            markerWidth="6" markerHeight="6"
+                            orient="auto-start-reverse"
+                        >
+                            <path d="M 0 0 L 8 4 L 0 8 z" fill="var(--color-accent)" />
+                        </marker>
+                    </defs>
+
+                    <!-- Wide invisible hit-target + visible stroke per edge -->
+                    <g v-for="edge in edges" :key="edge.key">
+                        <path
+                            :d="edge.d"
+                            fill="none"
+                            stroke="transparent"
+                            stroke-width="14"
+                            class="cursor-pointer"
+                            style="pointer-events: stroke;"
+                            @click.stop="pickRelation(edge, $event)"
+                        />
+                        <path
+                            :d="edge.d"
+                            fill="none"
+                            :stroke="edgeActive(edge) ? 'var(--color-accent)' : 'rgba(255,255,255,0.32)'"
+                            :stroke-width="edgeActive(edge) === 'selected' ? 1.75 : edgeActive(edge) === 'related' ? 1.5 : 1"
+                            :stroke-opacity="edgeActive(edge) ? 1 : 0.7"
+                            :marker-end="edgeActive(edge) ? 'url(#fk-arrow-active)' : 'url(#fk-arrow)'"
+                            class="pointer-events-none"
+                        />
                         <circle
                             :cx="edge.x1" :cy="edge.y1" r="3"
                             :fill="edgeActive(edge) ? 'var(--color-accent)' : 'var(--color-ink-3)'"
-                            :fill-opacity="edgeActive(edge) ? 1 : 0.5"
+                            :fill-opacity="edgeActive(edge) ? 1 : 0.6"
+                            class="pointer-events-none"
                         />
-                        <circle
-                            :cx="edge.x2" :cy="edge.y2" r="3"
-                            :fill="edgeActive(edge) ? 'var(--color-accent)' : 'var(--color-ink-3)'"
-                            :fill-opacity="edgeActive(edge) ? 1 : 0.5"
-                        />
-                    </template>
+                    </g>
+
+                    <!-- In-progress connection -->
+                    <path
+                        v-if="connecting"
+                        :d="`M ${connecting.sx} ${connecting.sy} L ${connecting.mx} ${connecting.my}`"
+                        fill="none"
+                        stroke="var(--color-accent)"
+                        stroke-width="1.5"
+                        stroke-dasharray="3 3"
+                        class="pointer-events-none"
+                    />
                 </svg>
 
                 <!-- Table nodes -->
@@ -226,7 +418,8 @@ function edgeActive(edge) {
                 >
                     <!-- Header (drag handle) -->
                     <div
-                        class="flex cursor-grab items-center justify-between rounded-t-md border-b hairline px-3 py-2 active:cursor-grabbing"
+                        class="flex cursor-grab items-center justify-between rounded-t-md border-b hairline px-3 active:cursor-grabbing"
+                        :style="{ height: HEADER_HEIGHT + 'px' }"
                         :class="selectedName === table.name
                             ? 'bg-[color:var(--color-accent)]/15'
                             : 'bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent)]'"
@@ -245,17 +438,27 @@ function edgeActive(edge) {
                         <li
                             v-for="col in table.columns"
                             :key="col.name"
-                            class="flex items-center justify-between gap-3 border-b last:border-b-0 hairline px-3 py-1.5"
+                            class="group/row relative flex items-center justify-between gap-3 border-b last:border-b-0 hairline px-3"
+                            :style="{ height: ROW_HEIGHT + 'px' }"
+                            @pointerenter="targetAnchor(table, col)"
+                            @pointerleave="clearTargetAnchor"
                         >
                             <div class="flex min-w-0 items-center gap-2">
                                 <span
                                     v-if="col.pk"
                                     class="shrink-0 font-mono text-[9px] font-bold uppercase tracking-wider text-[color:var(--color-warn)]"
+                                    title="Primary key"
                                 >PK</span>
                                 <span
-                                    v-else-if="table.foreignKeys.some((fk) => fk.column === col.name)"
+                                    v-else-if="isFKColumn(table, col.name)"
                                     class="shrink-0 font-mono text-[9px] font-bold uppercase tracking-wider text-[color:var(--color-accent)]"
+                                    title="Foreign key"
                                 >FK</span>
+                                <span
+                                    v-else-if="col.unique"
+                                    class="shrink-0 font-mono text-[9px] font-bold uppercase tracking-wider text-[color:var(--color-ink-3)]"
+                                    title="Unique"
+                                >U</span>
                                 <span v-else class="w-[18px] shrink-0"></span>
                                 <span class="truncate font-mono text-[11.5px] text-[color:var(--color-ink)]">
                                     {{ col.name }}
@@ -264,6 +467,26 @@ function edgeActive(edge) {
                             <span class="shrink-0 font-mono text-[10px] text-[color:var(--color-ink-3)]">
                                 {{ col.type }}{{ col.nullable ? '' : ' *' }}
                             </span>
+
+                            <!-- Connection anchors (design mode only) -->
+                            <template v-if="mode === 'design'">
+                                <button
+                                    type="button"
+                                    title="Drag to create a foreign key"
+                                    class="anchor anchor-left"
+                                    :class="connecting?.hover?.table === table.name && connecting?.hover?.column === col.name ? 'anchor--hot' : ''"
+                                    @pointerdown="startConnect(table, col, $event)"
+                                    @click.stop
+                                ></button>
+                                <button
+                                    type="button"
+                                    title="Drag to create a foreign key"
+                                    class="anchor anchor-right"
+                                    :class="connecting?.hover?.table === table.name && connecting?.hover?.column === col.name ? 'anchor--hot' : ''"
+                                    @pointerdown="startConnect(table, col, $event)"
+                                    @click.stop
+                                ></button>
+                            </template>
                         </li>
                     </ul>
                 </div>
@@ -271,3 +494,31 @@ function edgeActive(edge) {
         </div>
     </div>
 </template>
+
+<style scoped>
+.anchor {
+    position: absolute;
+    top: 50%;
+    width: 9px;
+    height: 9px;
+    margin-top: -4.5px;
+    border-radius: 9999px;
+    background: var(--color-canvas);
+    border: 1px solid var(--color-line-strong);
+    transition: background-color 120ms, border-color 120ms, transform 120ms;
+    cursor: crosshair;
+    opacity: 0;
+}
+.anchor-left  { left:  -5px; }
+.anchor-right { right: -5px; }
+li:hover .anchor,
+.anchor--hot {
+    opacity: 1;
+}
+.anchor:hover,
+.anchor--hot {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    transform: scale(1.25);
+}
+</style>

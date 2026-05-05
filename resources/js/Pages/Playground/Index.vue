@@ -57,7 +57,7 @@ const totalFKs = computed(() =>
 </script>
 
 <template>
-    <Head title="Query Lens — SQL Playground" />
+    <Head title="SQL Studio" />
 
     <main class="flex h-screen flex-col overflow-hidden">
         <PlaygroundChrome />

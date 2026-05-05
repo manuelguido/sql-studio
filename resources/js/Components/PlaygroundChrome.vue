@@ -1,8 +1,22 @@
 <script setup>
 import { ref } from 'vue';
 import { usePlayground } from '../Composables/usePlayground.js';
+import { useSchemaEditor } from '../Composables/useSchemaEditor.js';
+import ModeToggle from './ModeToggle.vue';
 
-const { rawSQL, dbSchema, isDirty, save, cancel, loadFromText, downloadAsFile, resetPositions } = usePlayground();
+const {
+    rawSQL,
+    dbSchema,
+    isDirty,
+    mode,
+    save,
+    cancel,
+    loadFromText,
+    downloadAsFile,
+    autoLayout,
+} = usePlayground();
+
+const { addTable } = useSchemaEditor();
 
 const fileInput = ref(null);
 
@@ -16,7 +30,6 @@ function onFileChange(e) {
     const reader = new FileReader();
     reader.onload = () => loadFromText(String(reader.result ?? ''));
     reader.readAsText(file);
-    // Allow re-uploading the same file
     e.target.value = '';
 }
 
@@ -28,14 +41,14 @@ function confirmCancel() {
 
 <template>
     <header class="flex h-11 shrink-0 items-center justify-between border-b hairline bg-[color:var(--color-chrome)] px-4">
-        <!-- Brand -->
+        <!-- Brand + mode -->
         <div class="flex items-center gap-4">
             <div class="flex items-center gap-2">
                 <span class="h-2 w-2 rounded-full bg-[color:var(--color-accent)]"></span>
-                <span class="font-mono text-[12px] font-medium tracking-tight text-[color:var(--color-ink)]">Query Lens</span>
+                <span class="font-mono text-[12px] font-medium tracking-tight text-[color:var(--color-ink)]">SQL Studio</span>
             </div>
             <span class="h-3 w-px bg-[color:var(--color-line-strong)]"></span>
-            <span class="label">SQL Playground</span>
+            <ModeToggle />
         </div>
 
         <!-- Status pill -->
@@ -63,6 +76,26 @@ function confirmCancel() {
                 @change="onFileChange"
             />
 
+            <!-- Design-mode actions -->
+            <template v-if="mode === 'design'">
+                <button
+                    @click="addTable()"
+                    class="focus-ring flex h-7 items-center gap-1 rounded-sm border hairline-strong bg-[color:var(--color-surface)] px-3 font-mono text-[11px] text-[color:var(--color-ink-2)] transition-colors hover:bg-[color:var(--color-elev)] hover:text-[color:var(--color-ink)]"
+                    title="Create a new table"
+                >
+                    <span aria-hidden="true" class="text-[12px] leading-none">+</span>
+                    <span>New Table</span>
+                </button>
+                <button
+                    @click="autoLayout"
+                    class="focus-ring flex h-7 items-center rounded-sm border hairline bg-transparent px-3 font-mono text-[11px] text-[color:var(--color-ink-3)] transition-colors hover:bg-[color:var(--color-surface)] hover:text-[color:var(--color-ink-2)]"
+                    title="Auto-arrange tables by dependency"
+                >
+                    Auto Layout
+                </button>
+                <span class="mx-1 h-4 w-px bg-[color:var(--color-line-strong)]"></span>
+            </template>
+
             <button
                 @click="triggerLoad"
                 class="focus-ring flex h-7 items-center rounded-sm border hairline-strong bg-[color:var(--color-surface)] px-3 font-mono text-[11px] text-[color:var(--color-ink-2)] transition-colors hover:bg-[color:var(--color-elev)] hover:text-[color:var(--color-ink)]"
@@ -78,14 +111,6 @@ function confirmCancel() {
             </button>
 
             <span class="mx-1 h-4 w-px bg-[color:var(--color-line-strong)]"></span>
-
-            <button
-                @click="resetPositions"
-                class="focus-ring flex h-7 items-center rounded-sm border hairline bg-transparent px-3 font-mono text-[11px] text-[color:var(--color-ink-3)] transition-colors hover:bg-[color:var(--color-surface)] hover:text-[color:var(--color-ink-2)]"
-                title="Auto-arrange tables"
-            >
-                Arrange
-            </button>
 
             <button
                 @click="confirmCancel"
