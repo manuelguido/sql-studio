@@ -1,19 +1,14 @@
 import { computed, ref, watch } from 'vue';
 import { parseSql } from './useSqlParser.js';
 
-// ─── localStorage keys (with legacy fallback) ──────────────────
+// ─── localStorage keys ─────────────────────────────────────────
 const LS_RAW   = 'sql-studio.rawSQL';
 const LS_SAVED = 'sql-studio.savedSQL';
 const LS_UI    = 'sql-studio.uiState';
-const LS_MODE  = 'sql-studio.mode';
 
-const LEGACY_RAW   = 'sql-studio.rawSQL';
-const LEGACY_SAVED = 'sql-studio.savedSQL';
-const LEGACY_UI    = 'sql-studio.uiState';
-
-// ─── Default sample (used on first visit) ──────────────────────
-const SAMPLE_SQL = `-- SQL Studio — schema design + inspection
--- Edit visually in Design mode, or write SQL directly in Inspect mode.
+// ─── Default schema (also used by "Load Default Template") ─────
+export const DEFAULT_TEMPLATE_SQL = `-- SQL Studio — schema design
+-- Edit visually on the canvas, or write SQL directly.
 
 CREATE TABLE users (
     id           INTEGER PRIMARY KEY,
@@ -67,20 +62,18 @@ function safeReadJson(key, fallback) {
     }
 }
 
-// ─── Initial state (with one-shot legacy migration) ────────────
-const initialSaved = safeRead(LS_SAVED, safeRead(LEGACY_SAVED, SAMPLE_SQL));
-const initialRaw   = safeRead(LS_RAW,   safeRead(LEGACY_RAW,   initialSaved));
-const initialUi    = safeReadJson(LS_UI, safeReadJson(LEGACY_UI, { selectedTable: null, positions: {} }));
-const initialMode  = safeRead(LS_MODE, 'inspect') === 'design' ? 'design' : 'inspect';
+// ─── Initial state ─────────────────────────────────────────────
+const initialSaved = safeRead(LS_SAVED, DEFAULT_TEMPLATE_SQL);
+const initialRaw   = safeRead(LS_RAW, initialSaved);
+const initialUi    = safeReadJson(LS_UI, { selectedTable: null, positions: {} });
 
 const rawSQL   = ref(initialRaw);
 const savedSQL = ref(initialSaved);
 const uiState  = ref({
-    selectedTable: initialUi.selectedTable ?? null,
+    selectedTable:    initialUi.selectedTable ?? null,
     selectedRelation: null,
-    positions: initialUi.positions ?? {},
+    positions:        initialUi.positions ?? {},
 });
-const mode = ref(initialMode);
 
 // ─── Debounced parse ───────────────────────────────────────────
 let parseTimer = null;
@@ -108,14 +101,10 @@ watch(uiState, (v) => {
     try {
         localStorage.setItem(LS_UI, JSON.stringify({
             selectedTable: v.selectedTable,
-            positions: v.positions,
+            positions:     v.positions,
         }));
     } catch { /* quota */ }
 }, { deep: true });
-
-watch(mode, (v) => {
-    try { localStorage.setItem(LS_MODE, v); } catch { /* quota */ }
-});
 
 // ─── Derived ───────────────────────────────────────────────────
 const isDirty       = computed(() => rawSQL.value !== savedSQL.value);
@@ -147,6 +136,10 @@ function loadFromText(text) {
         localStorage.setItem(LS_RAW, text);
         localStorage.setItem(LS_SAVED, text);
     } catch { /* quota */ }
+}
+
+function loadDefaultTemplate() {
+    loadFromText(DEFAULT_TEMPLATE_SQL);
 }
 
 function downloadAsFile(filename = 'schema.sql') {
@@ -183,8 +176,6 @@ function resetPositions() {
 
 /**
  * Auto-layout: dependency-aware grid.
- * Tables ordered by FK depth (roots first, dependents below) and arranged
- * left-to-right in rows of up to 4 nodes.
  */
 function autoLayout() {
     const tables = dbSchema.value.tables;
@@ -194,11 +185,11 @@ function autoLayout() {
     }
 
     const byName = new Map(tables.map((t) => [t.name, t]));
-    const depth = new Map();
+    const depth  = new Map();
 
     function depthOf(name, stack = new Set()) {
         if (depth.has(name)) return depth.get(name);
-        if (stack.has(name)) return 0; // cycle guard
+        if (stack.has(name)) return 0;
         const t = byName.get(name);
         if (!t) return 0;
         stack.add(name);
@@ -239,11 +230,6 @@ function autoLayout() {
     uiState.value = { ...uiState.value, positions };
 }
 
-function setMode(next) {
-    if (next !== 'design' && next !== 'inspect') return;
-    mode.value = next;
-}
-
 export function usePlayground() {
     return {
         // state
@@ -251,7 +237,6 @@ export function usePlayground() {
         savedSQL,
         dbSchema,
         uiState,
-        mode,
         // derived
         isDirty,
         selectedTable,
@@ -260,12 +245,12 @@ export function usePlayground() {
         save,
         cancel,
         loadFromText,
+        loadDefaultTemplate,
         downloadAsFile,
         selectTable,
         selectRelation,
         setPosition,
         resetPositions,
         autoLayout,
-        setMode,
     };
 }

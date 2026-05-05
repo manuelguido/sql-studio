@@ -15,8 +15,12 @@ import SqlEditor        from '../../Components/SqlEditor.vue';
 import SchemaGraph      from '../../Components/SchemaGraph.vue';
 import TableInspector   from '../../Components/TableInspector.vue';
 import { usePlayground } from '../../Composables/usePlayground.js';
+import { useKeyboard } from '../../Composables/useKeyboard.js';
 
 const { dbSchema, isDirty, save } = usePlayground();
+
+// Mount global keyboard system: undo/redo, copy/paste, delete, esc.
+useKeyboard();
 
 // Resizable editor pane width (persisted in-memory only)
 const editorWidth = ref(440);

@@ -2,12 +2,13 @@
 import { computed, ref, watch } from 'vue';
 import { usePlayground } from '../Composables/usePlayground.js';
 import { useSchemaEditor } from '../Composables/useSchemaEditor.js';
+import { sanitizeIdentifier } from '../Composables/useNaming.js';
+import ConfirmModal from './ConfirmModal.vue';
 
 const {
     dbSchema,
     selectedTable,
     selectedRelation,
-    mode,
     selectTable,
     selectRelation,
 } = usePlayground();
@@ -22,39 +23,49 @@ const {
     removeForeignKey,
 } = useSchemaEditor();
 
-const isDesign = computed(() => mode.value === 'design');
-
-// ── Table-name editor (local buffer to avoid jitter while typing) ──
+// ── Table-name buffer (sanitized live, committed on blur/enter) ──
 const nameBuffer = ref('');
 watch(selectedTable, (t) => { nameBuffer.value = t?.name ?? ''; }, { immediate: true });
 
+function onNameInput(e) {
+    // Live: replace forbidden chars as the user types. Cursor jumps are
+    // tolerated because we sanitize quietly (no error UI).
+    const sanitized = sanitizeIdentifier(e.target.value, '');
+    nameBuffer.value = sanitized || e.target.value.replace(/[^A-Za-z0-9_]+/g, '_');
+}
+
 function commitName() {
     if (!selectedTable.value) return;
-    const next = nameBuffer.value.trim();
-    if (!next || next === selectedTable.value.name) {
+    const final = sanitizeIdentifier(nameBuffer.value, selectedTable.value.name);
+    if (!final || final === selectedTable.value.name) {
         nameBuffer.value = selectedTable.value.name;
         return;
     }
-    renameTable(selectedTable.value.name, next);
+    renameTable(selectedTable.value.name, final);
 }
 
-// ── Column buffers (rename on blur to avoid losing focus on every keystroke) ──
-const colNameBuffers = ref({}); // keyed by current column name
+// ── Column-name buffers ──────────────────────────────────────────
+const colNameBuffers = ref({});
 watch(selectedTable, (t) => {
     colNameBuffers.value = {};
     if (!t) return;
     for (const c of t.columns) colNameBuffers.value[c.name] = c.name;
 }, { immediate: true, deep: true });
 
+function onColNameInput(originalName, e) {
+    const sanitized = sanitizeIdentifier(e.target.value, '');
+    colNameBuffers.value[originalName] = sanitized || e.target.value.replace(/[^A-Za-z0-9_]+/g, '_');
+}
+
 function commitColumnName(columnName) {
     const t = selectedTable.value;
     if (!t) return;
-    const next = (colNameBuffers.value[columnName] ?? '').trim();
-    if (!next || next === columnName) {
+    const final = sanitizeIdentifier(colNameBuffers.value[columnName] ?? '', columnName);
+    if (!final || final === columnName) {
         colNameBuffers.value[columnName] = columnName;
         return;
     }
-    updateColumn(t.name, columnName, { name: next });
+    updateColumn(t.name, columnName, { name: final });
 }
 
 const TYPES = [
@@ -77,6 +88,13 @@ const incomingFKs = computed(() => {
         .filter((fk) => fk.refTable === selectedTable.value.name);
 });
 
+// ── Drop-table confirm ──
+const showDropModal = ref(false);
+function requestDrop() { showDropModal.value = true; }
+function performDrop() {
+    if (selectedTable.value) removeTable(selectedTable.value.name);
+}
+
 function deleteRelation() {
     if (!selectedRelation.value) return;
     removeForeignKey(selectedRelation.value);
@@ -85,7 +103,7 @@ function deleteRelation() {
 
 <template>
     <aside class="flex w-[320px] shrink-0 flex-col overflow-auto border-l hairline bg-[color:var(--color-chrome)]">
-        <!-- Tables list + add -->
+        <!-- Tables list -->
         <section class="shrink-0">
             <div class="flex items-center justify-between border-b hairline px-4 py-2">
                 <span class="label">Tables</span>
@@ -94,7 +112,6 @@ function deleteRelation() {
                         {{ dbSchema.tables.length }}
                     </span>
                     <button
-                        v-if="isDesign"
                         @click="addTable()"
                         class="focus-ring flex h-5 items-center gap-0.5 rounded-sm border hairline-strong bg-[color:var(--color-surface)] px-1.5 font-mono text-[10px] text-[color:var(--color-ink-2)] hover:bg-[color:var(--color-elev)] hover:text-[color:var(--color-ink)]"
                         title="Create a new table"
@@ -128,7 +145,7 @@ function deleteRelation() {
             </p>
         </section>
 
-        <!-- Relation inspector takes priority when a relation is selected -->
+        <!-- Relation panel -->
         <section v-if="selectedRelation" class="border-t hairline">
             <div class="flex items-center justify-between border-b hairline px-4 py-2">
                 <span class="label">Relation</span>
@@ -153,7 +170,6 @@ function deleteRelation() {
                     Foreign key constraint. References target column.
                 </p>
                 <button
-                    v-if="isDesign"
                     @click="deleteRelation"
                     class="focus-ring flex h-7 w-full items-center justify-center rounded-sm border border-[color:var(--color-err)]/40 bg-[color:var(--color-err)]/10 px-3 font-mono text-[11px] text-[color:var(--color-err)] transition-colors hover:bg-[color:var(--color-err)]/20"
                 >
@@ -162,10 +178,10 @@ function deleteRelation() {
             </div>
         </section>
 
-        <!-- Table inspector / editor -->
+        <!-- Table editor -->
         <section v-else-if="selectedTable" class="border-t hairline">
             <div class="flex items-center justify-between border-b hairline px-4 py-2">
-                <span class="label">{{ isDesign ? 'Editor' : 'Inspector' }}</span>
+                <span class="label">Editor</span>
                 <button
                     @click="selectTable(null)"
                     class="font-mono text-[10px] text-[color:var(--color-ink-4)] transition-colors hover:text-[color:var(--color-ink-2)]"
@@ -173,10 +189,9 @@ function deleteRelation() {
             </div>
 
             <div class="px-4 py-3 space-y-2">
-                <!-- Editable name in design mode -->
                 <input
-                    v-if="isDesign"
-                    v-model="nameBuffer"
+                    :value="nameBuffer"
+                    @input="onNameInput"
                     @blur="commitName"
                     @keydown.enter.prevent="commitName"
                     class="ds-input font-mono text-[13px] font-semibold"
@@ -184,9 +199,6 @@ function deleteRelation() {
                     autocapitalize="off"
                     autocomplete="off"
                 />
-                <p v-else class="font-mono text-[13px] font-semibold text-[color:var(--color-ink)]">
-                    {{ selectedTable.name }}
-                </p>
                 <p class="label">
                     {{ selectedTable.columns.length }} columns ·
                     {{ selectedTable.foreignKeys.length }} fk out ·
@@ -199,40 +211,12 @@ function deleteRelation() {
                 <div class="mb-1.5 flex items-center justify-between">
                     <span class="label">Columns</span>
                     <button
-                        v-if="isDesign"
                         @click="addColumn(selectedTable.name)"
                         class="focus-ring flex h-5 items-center rounded-sm border hairline-strong bg-[color:var(--color-surface)] px-1.5 font-mono text-[10px] text-[color:var(--color-ink-2)] hover:bg-[color:var(--color-elev)] hover:text-[color:var(--color-ink)]"
                     >+ column</button>
                 </div>
 
-                <!-- Read mode -->
-                <ul v-if="!isDesign" class="divide-y hairline">
-                    <li
-                        v-for="col in selectedTable.columns"
-                        :key="col.name"
-                        class="flex items-baseline justify-between gap-2 py-1"
-                    >
-                        <div class="flex min-w-0 items-center gap-1.5">
-                            <span
-                                v-if="col.pk"
-                                class="font-mono text-[8.5px] font-bold uppercase tracking-wider text-[color:var(--color-warn)]"
-                            >PK</span>
-                            <span
-                                v-else-if="isFK(selectedTable, col.name)"
-                                class="font-mono text-[8.5px] font-bold uppercase tracking-wider text-[color:var(--color-accent)]"
-                            >FK</span>
-                            <span class="truncate font-mono text-[11.5px] text-[color:var(--color-ink)]">{{ col.name }}</span>
-                        </div>
-                        <div class="flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-[color:var(--color-ink-3)]">
-                            <span>{{ col.type }}</span>
-                            <span v-if="!col.nullable" class="text-[color:var(--color-ink-2)]">NN</span>
-                            <span v-if="col.unique" class="text-[color:var(--color-accent)]">U</span>
-                        </div>
-                    </li>
-                </ul>
-
-                <!-- Design mode editor -->
-                <ul v-else class="space-y-2">
+                <ul class="space-y-2">
                     <li
                         v-for="col in selectedTable.columns"
                         :key="col.name"
@@ -240,7 +224,8 @@ function deleteRelation() {
                     >
                         <div class="flex items-center gap-1.5">
                             <input
-                                v-model="colNameBuffers[col.name]"
+                                :value="colNameBuffers[col.name]"
+                                @input="onColNameInput(col.name, $event)"
                                 @blur="commitColumnName(col.name)"
                                 @keydown.enter.prevent="commitColumnName(col.name)"
                                 class="ds-input flex-1 font-mono text-[11.5px]"
@@ -322,7 +307,6 @@ function deleteRelation() {
                             >{{ fk.refTable }}.{{ fk.refColumn }}</button>
                         </span>
                         <button
-                            v-if="isDesign"
                             @click="removeForeignKey({ from: selectedTable.name, column: fk.column, to: fk.refTable, refColumn: fk.refColumn })"
                             class="shrink-0 font-mono text-[10px] text-[color:var(--color-ink-4)] transition-colors hover:text-[color:var(--color-err)]"
                             title="Remove relation"
@@ -350,10 +334,10 @@ function deleteRelation() {
                 </ul>
             </div>
 
-            <!-- Destructive zone (design only) -->
-            <div v-if="isDesign" class="border-t hairline px-4 py-3">
+            <!-- Drop table -->
+            <div class="border-t hairline px-4 py-3">
                 <button
-                    @click="removeTable(selectedTable.name)"
+                    @click="requestDrop"
                     class="focus-ring flex h-7 w-full items-center justify-center rounded-sm border border-[color:var(--color-err)]/40 bg-[color:var(--color-err)]/10 px-3 font-mono text-[11px] text-[color:var(--color-err)] transition-colors hover:bg-[color:var(--color-err)]/20"
                 >
                     Drop table
@@ -363,14 +347,25 @@ function deleteRelation() {
 
         <section v-else class="border-t hairline px-4 py-4">
             <p class="font-mono text-[11px] text-[color:var(--color-ink-4)] leading-relaxed">
-                <template v-if="isDesign">
-                    Select a table to edit it, or drag from a column anchor to create a foreign key.
-                </template>
-                <template v-else>
-                    Select a table from the list or graph to inspect its structure.
-                </template>
+                Select a table to edit it, or drag from a column anchor to create a foreign key.
+            </p>
+            <p class="mt-2 font-mono text-[10px] text-[color:var(--color-ink-4)] leading-relaxed">
+                <kbd class="kbd">⌘C</kbd> copy ·
+                <kbd class="kbd">⌘V</kbd> paste ·
+                <kbd class="kbd">⌫</kbd> delete ·
+                <kbd class="kbd">⌘Z</kbd> undo
             </p>
         </section>
+
+        <ConfirmModal
+            v-model:open="showDropModal"
+            title="Drop table"
+            :message="`Drop ${selectedTable?.name ?? ''}? This also removes any foreign keys pointing to it.`"
+            confirm-label="Drop table"
+            cancel-label="Cancel"
+            variant="danger"
+            @confirm="performDrop"
+        />
     </aside>
 </template>
 

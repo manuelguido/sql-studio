@@ -2,16 +2,20 @@
  * useSchemaEditor — mutation actions over the parsed schema.
  *
  * Each mutation:
- *   1. Clones `dbSchema` (deep, structural)
- *   2. Applies the change
- *   3. Serializes back to SQL
- *   4. Sets `rawSQL` (parser will then re-derive the canonical schema)
+ *   1. Records current state to history (so it can be undone)
+ *   2. Clones `dbSchema` (deep, structural)
+ *   3. Sanitizes any user-provided identifier
+ *   4. Applies the change
+ *   5. Serializes back to SQL
+ *   6. Sets `rawSQL` (the parser then re-derives the canonical schema)
  *
- * SQL is the single source of truth in BOTH modes. Visual edits round-trip
- * through the serializer + parser, guaranteeing a consistent schema.
+ * SQL is the single source of truth: visual edits round-trip through the
+ * serializer + parser, guaranteeing a consistent schema.
  */
 import { usePlayground } from './usePlayground.js';
 import { serializeSchema } from './useSqlSerializer.js';
+import { useHistory } from './useHistory.js';
+import { sanitizeIdentifier, uniqueName } from './useNaming.js';
 
 function cloneSchema(schema) {
     return {
@@ -25,28 +29,21 @@ function cloneSchema(schema) {
     };
 }
 
-function uniqueTableName(schema, base = 'new_table') {
-    const taken = new Set(schema.tables.map((t) => t.name));
-    if (!taken.has(base)) return base;
-    let i = 2;
-    while (taken.has(`${base}_${i}`)) i++;
-    return `${base}_${i}`;
+function tableNameSet(schema) {
+    return new Set(schema.tables.map((t) => t.name));
 }
 
-function uniqueColumnName(table, base = 'column') {
-    const taken = new Set(table.columns.map((c) => c.name));
-    if (!taken.has(base)) return base;
-    let i = 2;
-    while (taken.has(`${base}_${i}`)) i++;
-    return `${base}_${i}`;
+function columnNameSet(table) {
+    return new Set(table.columns.map((c) => c.name));
 }
 
 export function useSchemaEditor() {
     const { dbSchema, rawSQL, selectTable, selectRelation, setPosition } = usePlayground();
+    const { record } = useHistory();
 
     function commit(next) {
-        const sql = serializeSchema(next);
-        rawSQL.value = sql;
+        record();
+        rawSQL.value = serializeSchema(next);
     }
 
     function findTable(schema, name) {
@@ -55,7 +52,8 @@ export function useSchemaEditor() {
 
     function addTable(opts = {}) {
         const next = cloneSchema(dbSchema.value);
-        const name = uniqueTableName(next, opts.name || 'new_table');
+        const base = sanitizeIdentifier(opts.name || 'new_table', 'new_table');
+        const name = uniqueName(base, tableNameSet(next));
         next.tables.push({
             name,
             columns: [
@@ -66,7 +64,6 @@ export function useSchemaEditor() {
         });
         commit(next);
 
-        // Place new table where the user can see it (top-left of empty zone).
         const placedCount = next.tables.length - 1;
         const col = placedCount % 4;
         const row = Math.floor(placedCount / 4);
@@ -75,10 +72,30 @@ export function useSchemaEditor() {
         return name;
     }
 
+    /**
+     * pasteTable — insert a fully-formed table (used by clipboard/paste).
+     * `tableShape` is { name, columns, primaryKey, foreignKeys }. Name is
+     * sanitized and made unique. Returns the placed name (or null on no-op).
+     */
+    function pasteTable(tableShape) {
+        if (!tableShape) return null;
+        const next = cloneSchema(dbSchema.value);
+        const base = sanitizeIdentifier(tableShape.name || 'table_copy', 'table_copy');
+        const name = uniqueName(base, tableNameSet(next));
+        next.tables.push({
+            name,
+            columns: (tableShape.columns || []).map((c) => ({ ...c })),
+            primaryKey: [...(tableShape.primaryKey || [])],
+            foreignKeys: (tableShape.foreignKeys || []).map((fk) => ({ ...fk })),
+        });
+        commit(next);
+        return name;
+    }
+
     function removeTable(tableName) {
         const next = cloneSchema(dbSchema.value);
         next.tables = next.tables.filter((t) => t.name !== tableName);
-        // Cascade-strip any FKs pointing to the removed table.
+        // Cascade-strip FKs pointing to the removed table.
         for (const t of next.tables) {
             t.foreignKeys = t.foreignKeys.filter((fk) => fk.refTable !== tableName);
         }
@@ -87,25 +104,26 @@ export function useSchemaEditor() {
     }
 
     function renameTable(oldName, newName) {
-        const trimmed = String(newName || '').trim();
-        if (!trimmed || trimmed === oldName) return;
+        const sanitized = sanitizeIdentifier(newName, oldName);
+        if (!sanitized || sanitized === oldName) return;
         const next = cloneSchema(dbSchema.value);
-        if (next.tables.some((t) => t.name === trimmed)) return; // collision
+        if (next.tables.some((t) => t.name === sanitized)) return;
         for (const t of next.tables) {
-            if (t.name === oldName) t.name = trimmed;
+            if (t.name === oldName) t.name = sanitized;
             for (const fk of t.foreignKeys) {
-                if (fk.refTable === oldName) fk.refTable = trimmed;
+                if (fk.refTable === oldName) fk.refTable = sanitized;
             }
         }
         commit(next);
-        selectTable(trimmed);
+        selectTable(sanitized);
     }
 
     function addColumn(tableName, partial = {}) {
         const next = cloneSchema(dbSchema.value);
         const table = findTable(next, tableName);
         if (!table) return;
-        const name = uniqueColumnName(table, partial.name || 'column');
+        const base = sanitizeIdentifier(partial.name || 'column', 'column');
+        const name = uniqueName(base, columnNameSet(table));
         table.columns.push({
             name,
             type: partial.type || 'TEXT',
@@ -114,8 +132,8 @@ export function useSchemaEditor() {
             unique: !!partial.unique,
             default: partial.default ?? null,
         });
-        if (partial.pk) {
-            if (!table.primaryKey.includes(name)) table.primaryKey.push(name);
+        if (partial.pk && !table.primaryKey.includes(name)) {
+            table.primaryKey.push(name);
         }
         commit(next);
     }
@@ -127,20 +145,20 @@ export function useSchemaEditor() {
         const col = table.columns.find((c) => c.name === columnName);
         if (!col) return;
 
-        const nextName = patch.name !== undefined ? String(patch.name).trim() : col.name;
-        const renamed = nextName && nextName !== col.name;
-        if (renamed) {
-            // Keep PK list and FKs (this column or referencing it) consistent.
-            if (table.columns.some((c) => c !== col && c.name === nextName)) return;
-            const old = col.name;
-            col.name = nextName;
-            table.primaryKey = table.primaryKey.map((c) => (c === old ? nextName : c));
-            for (const fk of table.foreignKeys) {
-                if (fk.column === old) fk.column = nextName;
-            }
-            for (const t of next.tables) {
-                for (const fk of t.foreignKeys) {
-                    if (fk.refTable === tableName && fk.refColumn === old) fk.refColumn = nextName;
+        if (patch.name !== undefined) {
+            const sanitized = sanitizeIdentifier(patch.name, col.name);
+            if (sanitized && sanitized !== col.name) {
+                if (table.columns.some((c) => c !== col && c.name === sanitized)) return;
+                const old = col.name;
+                col.name = sanitized;
+                table.primaryKey = table.primaryKey.map((c) => (c === old ? sanitized : c));
+                for (const fk of table.foreignKeys) {
+                    if (fk.column === old) fk.column = sanitized;
+                }
+                for (const t of next.tables) {
+                    for (const fk of t.foreignKeys) {
+                        if (fk.refTable === tableName && fk.refColumn === old) fk.refColumn = sanitized;
+                    }
                 }
             }
         }
@@ -155,7 +173,6 @@ export function useSchemaEditor() {
             const set = new Set(table.primaryKey);
             if (col.pk) set.add(col.name); else set.delete(col.name);
             table.primaryKey = [...set];
-            // PKs are implicitly NOT NULL.
             if (col.pk) col.nullable = false;
         }
 
@@ -169,7 +186,6 @@ export function useSchemaEditor() {
         table.columns = table.columns.filter((c) => c.name !== columnName);
         table.primaryKey = table.primaryKey.filter((c) => c !== columnName);
         table.foreignKeys = table.foreignKeys.filter((fk) => fk.column !== columnName);
-        // Drop any incoming FK whose ref column is gone.
         for (const t of next.tables) {
             t.foreignKeys = t.foreignKeys.filter(
                 (fk) => !(fk.refTable === tableName && fk.refColumn === columnName),
@@ -187,7 +203,6 @@ export function useSchemaEditor() {
         if (!src || !dst) return;
         if (!src.columns.some((c) => c.name === fromColumn)) return;
         if (!dst.columns.some((c) => c.name === toColumn)) return;
-        // De-dupe identical FK.
         const exists = src.foreignKeys.some(
             (fk) => fk.column === fromColumn && fk.refTable === toTable && fk.refColumn === toColumn,
         );
@@ -210,6 +225,7 @@ export function useSchemaEditor() {
 
     return {
         addTable,
+        pasteTable,
         removeTable,
         renameTable,
         addColumn,

@@ -1,33 +1,37 @@
 <script setup>
 /**
- * SchemaGraph — visual schema renderer + design-mode editor.
+ * SchemaGraph — visual schema editor.
  *
- * Inspect mode: read-only canvas with drag-to-reposition.
- * Design mode:  + column anchors, drag-to-create FK, edge selection.
+ * Always design-mode. Drag tables to reposition (8px grid snap).
+ * Drag a column anchor onto another column to create a foreign key.
+ * Click an edge to select the relation. Click empty canvas to clear.
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { usePlayground } from '../Composables/usePlayground.js';
 import { useSchemaEditor } from '../Composables/useSchemaEditor.js';
+import { useHistory } from '../Composables/useHistory.js';
 
 const {
     dbSchema,
     uiState,
-    mode,
     selectTable,
     selectRelation,
     setPosition,
 } = usePlayground();
 
-const { addForeignKey, removeForeignKey } = useSchemaEditor();
+const { addForeignKey } = useSchemaEditor();
+const { record } = useHistory();
 
 // ── Layout constants ───────────────────────────────────────────
 const NODE_WIDTH    = 240;
 const NODE_GAP_X    = 80;
 const NODE_GAP_Y    = 60;
-const NODE_BASE_H   = 40;
-const ROW_HEIGHT    = 28;       // per column
+const ROW_HEIGHT    = 28;
 const HEADER_HEIGHT = 36;
 const GRID_SNAP     = 8;
+const GRID_CELL     = 24; // pixel size of grid background cell
+const CANVAS_W      = 4000;
+const CANVAS_H      = 3000;
 
 function snap(v) {
     return Math.round(v / GRID_SNAP) * GRID_SNAP;
@@ -52,14 +56,13 @@ const positions = computed(() => {
     return map;
 });
 
-// ── Node refs (for measuring) ──────────────────────────────────
+// ── Node refs ──────────────────────────────────────────────────
 const nodeRefs = {};
 function setNodeRef(name, el) {
     if (el) nodeRefs[name] = el;
     else delete nodeRefs[name];
 }
 
-// Column-row index → vertical offset within a node.
 function columnRowY(colIndex) {
     return HEADER_HEIGHT + colIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
 }
@@ -74,18 +77,14 @@ async function computeEdges() {
     for (const table of dbSchema.value.tables) {
         const sourcePos = positions.value[table.name];
         if (!sourcePos) continue;
-
-        const sourceEl = nodeRefs[table.name];
-        const sw = sourceEl?.offsetWidth  ?? NODE_WIDTH;
+        const sw = nodeRefs[table.name]?.offsetWidth ?? NODE_WIDTH;
 
         for (const fk of table.foreignKeys) {
             const targetPos = positions.value[fk.refTable];
             if (!targetPos) continue;
             const targetTable = dbSchema.value.tables.find((t) => t.name === fk.refTable);
             if (!targetTable) continue;
-
-            const targetEl = nodeRefs[fk.refTable];
-            const tw = targetEl?.offsetWidth  ?? NODE_WIDTH;
+            const tw = nodeRefs[fk.refTable]?.offsetWidth ?? NODE_WIDTH;
 
             const sIdx = table.columns.findIndex((c) => c.name === fk.column);
             const tIdx = targetTable.columns.findIndex((c) => c.name === fk.refColumn);
@@ -125,6 +124,8 @@ function startDrag(table, e) {
     e.preventDefault();
     selectTable(table.name);
     const pos = positions.value[table.name];
+    // Record one history entry at drag-start so the whole drag is one undo step.
+    record();
     dragging.value = {
         table:   table.name,
         offsetX: e.clientX - pos.x,
@@ -151,10 +152,9 @@ onUnmounted(() => {
     window.removeEventListener('pointermove', onConnectMove);
 });
 
-// ── FK connection drag (design mode) ───────────────────────────
+// ── FK connection drag ─────────────────────────────────────────
 const canvasRef  = ref(null);
 const connecting = ref(null);
-// { fromTable, fromColumn, sx, sy, mx, my, hover: { table, column } | null }
 
 function canvasPoint(e) {
     const root = canvasRef.value;
@@ -167,19 +167,16 @@ function canvasPoint(e) {
 }
 
 function startConnect(table, column, e) {
-    if (mode.value !== 'design') return;
     e.preventDefault();
     e.stopPropagation();
     const pos = positions.value[table.name];
     const colIdx = table.columns.findIndex((c) => c.name === column.name);
-    const sourceEl = nodeRefs[table.name];
-    const sw = sourceEl?.offsetWidth ?? NODE_WIDTH;
-    // Anchor on the right edge by default; we'll re-evaluate on drop.
+    const sw = nodeRefs[table.name]?.offsetWidth ?? NODE_WIDTH;
     const sx = pos.x + sw;
     const sy = pos.y + columnRowY(colIdx >= 0 ? colIdx : 0);
     const p  = canvasPoint(e);
     connecting.value = {
-        fromTable: table.name,
+        fromTable:  table.name,
         fromColumn: column.name,
         sx, sy,
         mx: p.x, my: p.y,
@@ -196,7 +193,6 @@ function onConnectMove(e) {
 }
 
 function targetAnchor(table, column) {
-    if (mode.value !== 'design') return;
     if (!connecting.value) return;
     if (connecting.value.fromTable === table.name && connecting.value.fromColumn === column.name) return;
     connecting.value = {
@@ -216,10 +212,10 @@ function endConnect() {
     connecting.value = null;
     if (!c || !c.hover) return;
     addForeignKey({
-        fromTable: c.fromTable,
+        fromTable:  c.fromTable,
         fromColumn: c.fromColumn,
-        toTable: c.hover.table,
-        toColumn: c.hover.column,
+        toTable:    c.hover.table,
+        toColumn:   c.hover.column,
     });
 }
 
@@ -267,21 +263,6 @@ function clearSelection(e) {
     }
 }
 
-// ── Keyboard: Delete removes selected relation in design mode ──
-function onKeydown(e) {
-    if (mode.value !== 'design') return;
-    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-    const tag = (document.activeElement?.tagName || '').toUpperCase();
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-    if (selectedRel.value) {
-        e.preventDefault();
-        removeForeignKey(selectedRel.value);
-    }
-}
-onMounted(() => window.addEventListener('keydown', onKeydown));
-onUnmounted(() => window.removeEventListener('keydown', onKeydown));
-
-// Helpers used by template
 function isFKColumn(table, columnName) {
     return table.foreignKeys.some((fk) => fk.column === columnName);
 }
@@ -295,14 +276,11 @@ function isFKColumn(table, columnName) {
             class="flex flex-1 items-center justify-center"
         >
             <div class="text-center">
-                <p class="font-mono text-[12px] text-[color:var(--color-ink-3)]">No tables to render.</p>
+                <p class="font-mono text-[12px] text-[color:var(--color-ink-3)]">No tables yet.</p>
                 <p class="mt-1 font-mono text-[11px] text-[color:var(--color-ink-4)]">
-                    <template v-if="mode === 'design'">
-                        Use <span class="text-[color:var(--color-ink-2)]">New Table</span> to start, or paste SQL into the editor.
-                    </template>
-                    <template v-else>
-                        Add a <code class="text-[color:var(--color-ink-3)]">CREATE TABLE</code> statement on the left.
-                    </template>
+                    Use <span class="text-[color:var(--color-ink-2)]">New Table</span>,
+                    <span class="text-[color:var(--color-ink-2)]">Template</span>,
+                    or paste SQL into the editor.
                 </p>
             </div>
         </div>
@@ -314,20 +292,11 @@ function isFKColumn(table, columnName) {
             class="relative flex-1 overflow-auto"
             @click="clearSelection"
         >
-            <!-- Subtle grid background -->
+            <!-- Inner canvas: grid is INSIDE so it pans with content -->
             <div
-                aria-hidden="true"
-                class="pointer-events-none absolute inset-0"
-                style="
-                    background-image:
-                        linear-gradient(to right, rgba(255,255,255,0.025) 1px, transparent 1px),
-                        linear-gradient(to bottom, rgba(255,255,255,0.025) 1px, transparent 1px);
-                    background-size: 24px 24px;
-                "
-            ></div>
-
-            <!-- Inner canvas -->
-            <div class="relative" style="min-width: 2400px; min-height: 1600px;">
+                class="canvas-inner relative"
+                :style="{ width: CANVAS_W + 'px', height: CANVAS_H + 'px' }"
+            >
                 <!-- SVG edges layer -->
                 <svg
                     class="absolute inset-0 h-full w-full overflow-visible"
@@ -355,7 +324,6 @@ function isFKColumn(table, columnName) {
                         </marker>
                     </defs>
 
-                    <!-- Wide invisible hit-target + visible stroke per edge -->
                     <g v-for="edge in edges" :key="edge.key">
                         <path
                             :d="edge.d"
@@ -468,25 +436,23 @@ function isFKColumn(table, columnName) {
                                 {{ col.type }}{{ col.nullable ? '' : ' *' }}
                             </span>
 
-                            <!-- Connection anchors (design mode only) -->
-                            <template v-if="mode === 'design'">
-                                <button
-                                    type="button"
-                                    title="Drag to create a foreign key"
-                                    class="anchor anchor-left"
-                                    :class="connecting?.hover?.table === table.name && connecting?.hover?.column === col.name ? 'anchor--hot' : ''"
-                                    @pointerdown="startConnect(table, col, $event)"
-                                    @click.stop
-                                ></button>
-                                <button
-                                    type="button"
-                                    title="Drag to create a foreign key"
-                                    class="anchor anchor-right"
-                                    :class="connecting?.hover?.table === table.name && connecting?.hover?.column === col.name ? 'anchor--hot' : ''"
-                                    @pointerdown="startConnect(table, col, $event)"
-                                    @click.stop
-                                ></button>
-                            </template>
+                            <!-- FK connection anchors -->
+                            <button
+                                type="button"
+                                title="Drag to create a foreign key"
+                                class="anchor anchor-left"
+                                :class="connecting?.hover?.table === table.name && connecting?.hover?.column === col.name ? 'anchor--hot' : ''"
+                                @pointerdown="startConnect(table, col, $event)"
+                                @click.stop
+                            ></button>
+                            <button
+                                type="button"
+                                title="Drag to create a foreign key"
+                                class="anchor anchor-right"
+                                :class="connecting?.hover?.table === table.name && connecting?.hover?.column === col.name ? 'anchor--hot' : ''"
+                                @pointerdown="startConnect(table, col, $event)"
+                                @click.stop
+                            ></button>
                         </li>
                     </ul>
                 </div>
@@ -496,6 +462,16 @@ function isFKColumn(table, columnName) {
 </template>
 
 <style scoped>
+/* Grid lives INSIDE the sized canvas so it pans with the content. */
+.canvas-inner {
+    background-color: var(--color-canvas);
+    background-image:
+        linear-gradient(to right,  rgba(255,255,255,0.025) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 24px 24px;
+    background-position: 0 0;
+}
+
 .anchor {
     position: absolute;
     top: 50%;
