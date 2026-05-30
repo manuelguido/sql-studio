@@ -2,9 +2,9 @@ import { computed, ref, watch } from 'vue';
 import { parseSql } from './useSqlParser.js';
 
 // ─── localStorage keys ─────────────────────────────────────────
-const LS_RAW   = 'sql-studio.rawSQL';
+const LS_RAW = 'sql-studio.rawSQL';
 const LS_SAVED = 'sql-studio.savedSQL';
-const LS_UI    = 'sql-studio.uiState';
+const LS_UI = 'sql-studio.uiState';
 
 // ─── Default schema (also used by "Load Default Template") ─────
 export const DEFAULT_TEMPLATE_SQL = `-- SQL Studio — schema design
@@ -45,34 +45,34 @@ CREATE TABLE comments (
 
 // ─── safe LS helpers ───────────────────────────────────────────
 function safeRead(key, fallback) {
-    try {
-        const v = localStorage.getItem(key);
-        return v === null ? fallback : v;
-    } catch {
-        return fallback;
-    }
+	try {
+		const v = localStorage.getItem(key);
+		return v === null ? fallback : v;
+	} catch {
+		return fallback;
+	}
 }
 
 function safeReadJson(key, fallback) {
-    try {
-        const v = localStorage.getItem(key);
-        return v ? JSON.parse(v) : fallback;
-    } catch {
-        return fallback;
-    }
+	try {
+		const v = localStorage.getItem(key);
+		return v ? JSON.parse(v) : fallback;
+	} catch {
+		return fallback;
+	}
 }
 
 // ─── Initial state ─────────────────────────────────────────────
 const initialSaved = safeRead(LS_SAVED, DEFAULT_TEMPLATE_SQL);
-const initialRaw   = safeRead(LS_RAW, initialSaved);
-const initialUi    = safeReadJson(LS_UI, { selectedTable: null, positions: {} });
+const initialRaw = safeRead(LS_RAW, initialSaved);
+const initialUi = safeReadJson(LS_UI, { selectedTable: null, positions: {} });
 
-const rawSQL   = ref(initialRaw);
+const rawSQL = ref(initialRaw);
 const savedSQL = ref(initialSaved);
-const uiState  = ref({
-    selectedTable:    initialUi.selectedTable ?? null,
-    selectedRelation: null,
-    positions:        initialUi.positions ?? {},
+const uiState = ref({
+	selectedTable: initialUi.selectedTable ?? null,
+	selectedRelation: null,
+	positions: initialUi.positions ?? {},
 });
 
 // ─── Debounced parse ───────────────────────────────────────────
@@ -80,10 +80,10 @@ let parseTimer = null;
 const dbSchema = ref(parseSql(rawSQL.value));
 
 function scheduleReparse() {
-    if (parseTimer) clearTimeout(parseTimer);
-    parseTimer = setTimeout(() => {
-        dbSchema.value = parseSql(rawSQL.value);
-    }, 200);
+	if (parseTimer) clearTimeout(parseTimer);
+	parseTimer = setTimeout(() => {
+		dbSchema.value = parseSql(rawSQL.value);
+	}, 200);
 }
 
 watch(rawSQL, scheduleReparse);
@@ -91,166 +91,181 @@ watch(rawSQL, scheduleReparse);
 // ─── Persistence ───────────────────────────────────────────────
 let rawTimer = null;
 watch(rawSQL, (v) => {
-    if (rawTimer) clearTimeout(rawTimer);
-    rawTimer = setTimeout(() => {
-        try { localStorage.setItem(LS_RAW, v); } catch { /* quota */ }
-    }, 300);
+	if (rawTimer) clearTimeout(rawTimer);
+	rawTimer = setTimeout(() => {
+		try {
+			localStorage.setItem(LS_RAW, v);
+		} catch {
+			/* quota */
+		}
+	}, 300);
 });
 
-watch(uiState, (v) => {
-    try {
-        localStorage.setItem(LS_UI, JSON.stringify({
-            selectedTable: v.selectedTable,
-            positions:     v.positions,
-        }));
-    } catch { /* quota */ }
-}, { deep: true });
+watch(
+	uiState,
+	(v) => {
+		try {
+			localStorage.setItem(
+				LS_UI,
+				JSON.stringify({
+					selectedTable: v.selectedTable,
+					positions: v.positions,
+				})
+			);
+		} catch {
+			/* quota */
+		}
+	},
+	{ deep: true }
+);
 
 // ─── Derived ───────────────────────────────────────────────────
-const isDirty       = computed(() => rawSQL.value !== savedSQL.value);
-const selectedTable = computed(() =>
-    dbSchema.value.tables.find((t) => t.name === uiState.value.selectedTable) ?? null,
-);
+const isDirty = computed(() => rawSQL.value !== savedSQL.value);
+const selectedTable = computed(() => dbSchema.value.tables.find((t) => t.name === uiState.value.selectedTable) ?? null);
 const selectedRelation = computed(() => uiState.value.selectedRelation);
 
 // ─── Actions ───────────────────────────────────────────────────
 function save() {
-    savedSQL.value = rawSQL.value;
-    try {
-        localStorage.setItem(LS_SAVED, savedSQL.value);
-        localStorage.setItem(LS_RAW, rawSQL.value);
-    } catch { /* quota */ }
+	savedSQL.value = rawSQL.value;
+	try {
+		localStorage.setItem(LS_SAVED, savedSQL.value);
+		localStorage.setItem(LS_RAW, rawSQL.value);
+	} catch {
+		/* quota */
+	}
 }
 
 function cancel() {
-    rawSQL.value = savedSQL.value;
-    dbSchema.value = parseSql(rawSQL.value);
+	rawSQL.value = savedSQL.value;
+	dbSchema.value = parseSql(rawSQL.value);
 }
 
 function loadFromText(text) {
-    rawSQL.value   = text;
-    savedSQL.value = text;
-    uiState.value  = { selectedTable: null, selectedRelation: null, positions: {} };
-    dbSchema.value = parseSql(text);
-    try {
-        localStorage.setItem(LS_RAW, text);
-        localStorage.setItem(LS_SAVED, text);
-    } catch { /* quota */ }
+	rawSQL.value = text;
+	savedSQL.value = text;
+	uiState.value = { selectedTable: null, selectedRelation: null, positions: {} };
+	dbSchema.value = parseSql(text);
+	try {
+		localStorage.setItem(LS_RAW, text);
+		localStorage.setItem(LS_SAVED, text);
+	} catch {
+		/* quota */
+	}
 }
 
 function loadDefaultTemplate() {
-    loadFromText(DEFAULT_TEMPLATE_SQL);
+	loadFromText(DEFAULT_TEMPLATE_SQL);
 }
 
 function downloadAsFile(filename = 'schema.sql') {
-    const blob = new Blob([rawSQL.value], { type: 'text/plain;charset=utf-8' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+	const blob = new Blob([rawSQL.value], { type: 'text/plain;charset=utf-8' });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = filename;
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
 }
 
 function selectTable(name) {
-    uiState.value = { ...uiState.value, selectedTable: name, selectedRelation: null };
+	uiState.value = { ...uiState.value, selectedTable: name, selectedRelation: null };
 }
 
 function selectRelation(rel) {
-    // rel: { from, to, column, refColumn } | null
-    uiState.value = { ...uiState.value, selectedRelation: rel, selectedTable: null };
+	// rel: { from, to, column, refColumn } | null
+	uiState.value = { ...uiState.value, selectedRelation: rel, selectedTable: null };
 }
 
 function setPosition(name, pos) {
-    uiState.value = {
-        ...uiState.value,
-        positions: { ...uiState.value.positions, [name]: pos },
-    };
+	uiState.value = {
+		...uiState.value,
+		positions: { ...uiState.value.positions, [name]: pos },
+	};
 }
 
 function resetPositions() {
-    uiState.value = { ...uiState.value, positions: {} };
+	uiState.value = { ...uiState.value, positions: {} };
 }
 
 /**
  * Auto-layout: dependency-aware grid.
  */
 function autoLayout() {
-    const tables = dbSchema.value.tables;
-    if (!tables.length) {
-        resetPositions();
-        return;
-    }
+	const tables = dbSchema.value.tables;
+	if (!tables.length) {
+		resetPositions();
+		return;
+	}
 
-    const byName = new Map(tables.map((t) => [t.name, t]));
-    const depth  = new Map();
+	const byName = new Map(tables.map((t) => [t.name, t]));
+	const depth = new Map();
 
-    function depthOf(name, stack = new Set()) {
-        if (depth.has(name)) return depth.get(name);
-        if (stack.has(name)) return 0;
-        const t = byName.get(name);
-        if (!t) return 0;
-        stack.add(name);
-        let d = 0;
-        for (const fk of t.foreignKeys) {
-            if (fk.refTable !== name && byName.has(fk.refTable)) {
-                d = Math.max(d, depthOf(fk.refTable, stack) + 1);
-            }
-        }
-        stack.delete(name);
-        depth.set(name, d);
-        return d;
-    }
+	function depthOf(name, stack = new Set()) {
+		if (depth.has(name)) return depth.get(name);
+		if (stack.has(name)) return 0;
+		const t = byName.get(name);
+		if (!t) return 0;
+		stack.add(name);
+		let d = 0;
+		for (const fk of t.foreignKeys) {
+			if (fk.refTable !== name && byName.has(fk.refTable)) {
+				d = Math.max(d, depthOf(fk.refTable, stack) + 1);
+			}
+		}
+		stack.delete(name);
+		depth.set(name, d);
+		return d;
+	}
 
-    tables.forEach((t) => depthOf(t.name));
+	tables.forEach((t) => depthOf(t.name));
 
-    const rows = new Map();
-    for (const t of tables) {
-        const d = depth.get(t.name) ?? 0;
-        if (!rows.has(d)) rows.set(d, []);
-        rows.get(d).push(t.name);
-    }
+	const rows = new Map();
+	for (const t of tables) {
+		const d = depth.get(t.name) ?? 0;
+		if (!rows.has(d)) rows.set(d, []);
+		rows.get(d).push(t.name);
+	}
 
-    const colW = 280;
-    const rowH = 300;
-    const positions = {};
-    const ordered = [...rows.keys()].sort((a, b) => a - b);
-    ordered.forEach((d, rowIdx) => {
-        const names = rows.get(d);
-        names.forEach((name, colIdx) => {
-            positions[name] = {
-                x: 60 + colIdx * (colW + 60),
-                y: 60 + rowIdx * rowH,
-            };
-        });
-    });
+	const colW = 280;
+	const rowH = 300;
+	const positions = {};
+	const ordered = [...rows.keys()].sort((a, b) => a - b);
+	ordered.forEach((d, rowIdx) => {
+		const names = rows.get(d);
+		names.forEach((name, colIdx) => {
+			positions[name] = {
+				x: 60 + colIdx * (colW + 60),
+				y: 60 + rowIdx * rowH,
+			};
+		});
+	});
 
-    uiState.value = { ...uiState.value, positions };
+	uiState.value = { ...uiState.value, positions };
 }
 
 export function usePlayground() {
-    return {
-        // state
-        rawSQL,
-        savedSQL,
-        dbSchema,
-        uiState,
-        // derived
-        isDirty,
-        selectedTable,
-        selectedRelation,
-        // actions
-        save,
-        cancel,
-        loadFromText,
-        loadDefaultTemplate,
-        downloadAsFile,
-        selectTable,
-        selectRelation,
-        setPosition,
-        resetPositions,
-        autoLayout,
-    };
+	return {
+		// state
+		rawSQL,
+		savedSQL,
+		dbSchema,
+		uiState,
+		// derived
+		isDirty,
+		selectedTable,
+		selectedRelation,
+		// actions
+		save,
+		cancel,
+		loadFromText,
+		loadDefaultTemplate,
+		downloadAsFile,
+		selectTable,
+		selectRelation,
+		setPosition,
+		resetPositions,
+		autoLayout,
+	};
 }

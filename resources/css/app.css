@@ -7,164 +7,184 @@
 @source '../**/*.vue';
 
 @theme {
-    --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
-    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+	--font-sans:
+		'Inter', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+		'Noto Color Emoji';
+	--font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
 
-    /* Dark theme — layered, JetBrains-like */
-    --color-canvas: #1c1d21;          /* app background (dark gray, not black) */
-    --color-chrome: #16171a;          /* outer chrome / top bar */
-    --color-surface: #232428;         /* panels (one step lighter than canvas) */
-    --color-surface-2: #2a2b30;       /* editor / dominant surface */
-    --color-elev: #2f3035;            /* hover / selected row */
+	/* Dark theme — layered, JetBrains-like */
+	--color-canvas: #1c1d21; /* app background (dark gray, not black) */
+	--color-chrome: #16171a; /* outer chrome / top bar */
+	--color-surface: #232428; /* panels (one step lighter than canvas) */
+	--color-surface-2: #2a2b30; /* editor / dominant surface */
+	--color-elev: #2f3035; /* hover / selected row */
 
-    --color-line: rgba(255, 255, 255, 0.06);
-    --color-line-strong: rgba(255, 255, 255, 0.10);
-    --color-line-accent: rgba(255, 255, 255, 0.14);
+	--color-line: rgba(255, 255, 255, 0.06);
+	--color-line-strong: rgba(255, 255, 255, 0.1);
+	--color-line-accent: rgba(255, 255, 255, 0.14);
 
-    --color-ink: #e6e6e8;             /* primary text */
-    --color-ink-2: #b3b4b8;           /* secondary */
-    --color-ink-3: #7c7d83;           /* metadata */
-    --color-ink-4: #56575c;           /* tertiary / disabled */
+	--color-ink: #e6e6e8; /* primary text */
+	--color-ink-2: #b3b4b8; /* secondary */
+	--color-ink-3: #7c7d83; /* metadata */
+	--color-ink-4: #56575c; /* tertiary / disabled */
 
-    --color-accent: #6aa6ff;          /* restrained blue (JetBrains-ish) */
-    --color-accent-soft: rgba(106, 166, 255, 0.12);
+	--color-accent: #6aa6ff; /* restrained blue (JetBrains-ish) */
+	--color-accent-soft: rgba(106, 166, 255, 0.12);
 
-    --color-ok: #6cc28a;
-    --color-warn: #d8a657;
-    --color-err: #e07a7a;
+	--color-ok: #6cc28a;
+	--color-warn: #d8a657;
+	--color-err: #e07a7a;
 
-    /* Syntax highlighting palette (restrained, JetBrains-ish) */
-    --hl-keyword:  #7eb3f5;   /* soft blue — DML / DDL keywords */
-    --hl-type:     #4ec9b0;   /* muted teal — data types */
-    --hl-string:   #87c77a;   /* soft green — string literals */
-    --hl-number:   #d8a657;   /* warm amber — numeric literals */
-    --hl-comment:  #4c505a;   /* low-contrast gray — comments */
-    --hl-operator: #b3b4b8;   /* light gray — operators */
-    --hl-punct:    #5a5c63;   /* dim gray — punctuation */
+	/* Syntax highlighting palette (restrained, JetBrains-ish) */
+	--hl-keyword: #7eb3f5; /* soft blue — DML / DDL keywords */
+	--hl-type: #4ec9b0; /* muted teal — data types */
+	--hl-string: #87c77a; /* soft green — string literals */
+	--hl-number: #d8a657; /* warm amber — numeric literals */
+	--hl-comment: #4c505a; /* low-contrast gray — comments */
+	--hl-operator: #b3b4b8; /* light gray — operators */
+	--hl-punct: #5a5c63; /* dim gray — punctuation */
 }
 
 @layer base {
-    :root {
-        color-scheme: dark;
-    }
+	:root {
+		color-scheme: dark;
+	}
 
-    html,
-    body {
-        background: var(--color-canvas);
-        color: var(--color-ink);
-        font-family: var(--font-sans);
-        font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
-        -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-    }
+	html,
+	body {
+		background: var(--color-canvas);
+		color: var(--color-ink);
+		font-family: var(--font-sans);
+		font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
 
-    ::selection {
-        background: rgba(106, 166, 255, 0.28);
-        color: #ffffff;
-    }
+	::selection {
+		background: rgba(106, 166, 255, 0.28);
+		color: #ffffff;
+	}
 }
 
 @layer components {
-    .label {
-        font-size: 0.6875rem;
-        font-family: var(--font-mono);
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--color-ink-3);
-        font-weight: 500;
-    }
+	.label {
+		font-size: 0.6875rem;
+		font-family: var(--font-mono);
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--color-ink-3);
+		font-weight: 500;
+	}
 
-    .hairline {
-        border-color: var(--color-line);
-    }
+	.hairline {
+		border-color: var(--color-line);
+	}
 
-    .hairline-strong {
-        border-color: var(--color-line-strong);
-    }
+	.hairline-strong {
+		border-color: var(--color-line-strong);
+	}
 
-    .metric {
-        font-variant-numeric: tabular-nums;
-    }
+	.metric {
+		font-variant-numeric: tabular-nums;
+	}
 
-    .panel {
-        background: var(--color-surface);
-        border: 1px solid var(--color-line);
-        border-radius: 6px;
-    }
+	.panel {
+		background: var(--color-surface);
+		border: 1px solid var(--color-line);
+		border-radius: 6px;
+	}
 
-    .panel-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.75rem;
-        padding: 0.5rem 0.875rem;
-        border-bottom: 1px solid var(--color-line);
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
-    }
+	.panel-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.5rem 0.875rem;
+		border-bottom: 1px solid var(--color-line);
+		background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
+	}
 
-    .editor-surface {
-        background: var(--color-surface-2);
-        border: 1px solid var(--color-line-strong);
-        border-radius: 6px;
-    }
+	.editor-surface {
+		background: var(--color-surface-2);
+		border: 1px solid var(--color-line-strong);
+		border-radius: 6px;
+	}
 
-    .sql-pre {
-        font-family: var(--font-mono);
-        font-size: 12.5px;
-        line-height: 1.7;
-        color: var(--color-ink);
-        tab-size: 2;
-    }
+	.sql-pre {
+		font-family: var(--font-mono);
+		font-size: 12.5px;
+		line-height: 1.7;
+		color: var(--color-ink);
+		tab-size: 2;
+	}
 
-    .row-hover:hover {
-        background: var(--color-elev);
-    }
+	.row-hover:hover {
+		background: var(--color-elev);
+	}
 
-    .focus-ring:focus-visible {
-        outline: none;
-        box-shadow: 0 0 0 1px var(--color-accent), 0 0 0 3px var(--color-accent-soft);
-    }
+	.focus-ring:focus-visible {
+		outline: none;
+		box-shadow:
+			0 0 0 1px var(--color-accent),
+			0 0 0 3px var(--color-accent-soft);
+	}
 
-    /* ─── Syntax highlight token classes ──────────────────────── */
-    /* Applied to <span> elements emitted by useSqlHighlighter.js */
+	/* ─── Syntax highlight token classes ──────────────────────── */
+	/* Applied to <span> elements emitted by useSqlHighlighter.js */
 
-    .hl-keyword  { color: var(--hl-keyword); }
-    .hl-type     { color: var(--hl-type); }
-    .hl-string   { color: var(--hl-string); }
-    .hl-number   { color: var(--hl-number); }
-    .hl-comment  { color: var(--hl-comment); font-style: italic; }
-    .hl-operator { color: var(--hl-operator); }
-    .hl-punct    { color: var(--hl-punct); }
+	.hl-keyword {
+		color: var(--hl-keyword);
+	}
+	.hl-type {
+		color: var(--hl-type);
+	}
+	.hl-string {
+		color: var(--hl-string);
+	}
+	.hl-number {
+		color: var(--hl-number);
+	}
+	.hl-comment {
+		color: var(--hl-comment);
+		font-style: italic;
+	}
+	.hl-operator {
+		color: var(--hl-operator);
+	}
+	.hl-punct {
+		color: var(--hl-punct);
+	}
 
-    /* ─── Highlight overlay (behind the textarea) ─────────────── */
-    .hl-layer {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        /* overflow: scroll + hidden scrollbars lets scrollTop/Left sync work */
-        overflow: scroll;
-        scrollbar-width: none;           /* Firefox */
-        padding: 1rem;                   /* must match textarea px-4 py-4  */
-        white-space: pre;                /* mirrors wrap="off" */
-        overflow-wrap: normal;
-        word-break: normal;
-        color: var(--color-ink);
-        tab-size: 2;
-        border: 0;
-        margin: 0;
-    }
-    .hl-layer::-webkit-scrollbar { display: none; }
+	/* ─── Highlight overlay (behind the textarea) ─────────────── */
+	.hl-layer {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+		/* overflow: scroll + hidden scrollbars lets scrollTop/Left sync work */
+		overflow: scroll;
+		scrollbar-width: none; /* Firefox */
+		padding: 1rem; /* must match textarea px-4 py-4  */
+		white-space: pre; /* mirrors wrap="off" */
+		overflow-wrap: normal;
+		word-break: normal;
+		color: var(--color-ink);
+		tab-size: 2;
+		border: 0;
+		margin: 0;
+	}
+	.hl-layer::-webkit-scrollbar {
+		display: none;
+	}
 
-    /* ─── Editing layer: transparent text, visible caret ──────── */
-    .sql-textarea {
-        color: transparent;
-        -webkit-text-fill-color: transparent;
-        caret-color: var(--color-ink);
-    }
-    /* Keep selection background visible; suppress text color override */
-    .sql-textarea::selection {
-        color: transparent;
-        -webkit-text-fill-color: transparent;
-    }
+	/* ─── Editing layer: transparent text, visible caret ──────── */
+	.sql-textarea {
+		color: transparent;
+		-webkit-text-fill-color: transparent;
+		caret-color: var(--color-ink);
+	}
+	/* Keep selection background visible; suppress text color override */
+	.sql-textarea::selection {
+		color: transparent;
+		-webkit-text-fill-color: transparent;
+	}
 }
