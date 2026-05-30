@@ -61,6 +61,9 @@ jobs:
       - name: Install PHP Dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
+      - name: Generate Wayfinder Types
+        run: php artisan wayfinder:generate --with-form --no-interaction
+
       #
       # Node
       #
