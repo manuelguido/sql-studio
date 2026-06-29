@@ -1,58 +1,282 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# SQL Studio
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+SQL Studio is a local workspace for designing relational database schemas. It keeps SQL text, a visual table graph, and a table inspector connected so you can reason about structure while still owning the DDL.
 
-## About Laravel
+The application does not connect to a database server or execute SQL. It is for modeling tables, columns, keys, and relationships before those definitions move into migrations or hand-authored SQL files.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Modeling Workflow
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+SQL schema design often bounces between two views:
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- the exact DDL you will commit
+- the relationship graph you need to reason about
 
-## Learning Laravel
+SQL Studio keeps those views in sync. The SQL text is the source of truth. Visual operations mutate the schema model, serialize it back to canonical SQL, and let the parser re-read it.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+That gives you a quick way to:
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+- sketch tables and columns
+- inspect foreign-key relationships
+- rename tables and columns safely
+- create relationships by dragging between columns
+- download the resulting SQL
+- work locally without a database connection
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+## How It Works
 
-## Agentic Development
+SQL Studio parses supported `CREATE TABLE` statements from the editor, builds an in-memory schema model, renders tables and foreign keys on a canvas, and serializes visual edits back into SQL. Unsupported SQL is ignored or reported as a parse warning instead of being executed.
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Current Capabilities
 
-```bash
-composer require laravel/boost --dev
+### SQL Editor
 
-php artisan boost:install
+- Textarea editor with line gutter.
+- SQL syntax highlighting layer.
+- Tab indentation handling.
+- Parse warning count.
+- New-table snippet insertion.
+- Load `.sql` or plain text files.
+- Download the current SQL as `schema.sql`.
+- Save, cancel, and dirty-state tracking through localStorage.
+
+### Visual Schema Graph
+
+- Table cards rendered on a large scrollable canvas.
+- Drag tables to reposition them.
+- Positions snap to an 8px grid.
+- Foreign-key lines are drawn as SVG paths.
+- Click a relation to inspect it.
+- Drag from a column anchor to another column to create a foreign key.
+- Auto-layout by dependency depth.
+- Related tables and selected relations are highlighted.
+
+### Inspector
+
+- Table list with column counts.
+- Table rename with identifier sanitization.
+- Add and remove tables.
+- Add, edit, and remove columns.
+- Edit column type, default value, primary key, `NOT NULL`, and `UNIQUE`.
+- See outgoing and incoming foreign keys.
+- Delete a selected relation.
+- Drop a table with confirmation. Foreign keys pointing to that table are removed.
+
+### Editing Workflow
+
+- Undo and redo with a 100-snapshot history stack.
+- In-memory copy/paste for selected tables.
+- Copy/paste does not touch the system clipboard, so text editing remains predictable.
+- Pasted tables receive unique names and offset positions.
+- Foreign keys are dropped on pasted tables to avoid dangling references.
+
+## Parser Scope
+
+The SQL parser is intentionally narrow and dialect-tolerant. It extracts `CREATE TABLE` statements and ignores unrelated SQL.
+
+It supports:
+
+- line and block comments
+- `CREATE TABLE`
+- `CREATE TEMP TABLE`
+- `CREATE TABLE IF NOT EXISTS`
+- quoted identifiers with backticks, double quotes, or single quotes
+- schema-qualified table names, with the schema prefix dropped
+- column definitions
+- inline primary keys
+- table-level primary keys
+- inline references
+- table-level foreign keys
+- table-level unique constraints
+- basic default values
+
+It ignores or only partially models:
+
+- indexes
+- check constraints
+- triggers
+- views
+- inserts
+- alters
+- drops
+- stored procedures
+- database-specific options outside the `CREATE TABLE (...)` body
+
+The serializer emits straightforward `CREATE TABLE` statements without database-specific extensions.
+
+## Architecture
+
+```text
+app/Http/Controllers/PlaygroundController.php
+    Serves the Inertia playground.
+
+resources/js/Pages/Playground/Index.vue
+    Main layout: chrome, editor, graph, inspector, and status bar.
+
+resources/js/Composables/usePlayground.js
+    Shared state, localStorage persistence, parse scheduling, save/cancel,
+    file download, selection, positioning, and auto-layout.
+
+resources/js/Composables/useSqlParser.js
+    SQL to schema extraction.
+
+resources/js/Composables/useSqlSerializer.js
+    Schema model back to canonical CREATE TABLE statements.
+
+resources/js/Composables/useSchemaEditor.js
+    History-aware table, column, and foreign-key mutations.
+
+resources/js/Components/SqlEditor.vue
+    SQL editing surface and syntax highlighting overlay.
+
+resources/js/Components/SchemaGraph.vue
+    Table canvas and relation drawing.
+
+resources/js/Components/TableInspector.vue
+    Table and relation editing panel.
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+## Data Model
+
+The parsed schema shape is simple:
+
+```js
+{
+  tables: [
+    {
+      name: 'users',
+      columns: [
+        {
+          name: 'id',
+          type: 'INTEGER',
+          pk: true,
+          nullable: false,
+          unique: false,
+          default: null
+        }
+      ],
+      primaryKey: ['id'],
+      foreignKeys: [
+        {
+          column: 'owner_id',
+          refTable: 'users',
+          refColumn: 'id'
+        }
+      ]
+    }
+  ],
+  errors: []
+}
+```
+
+Positions and selected UI state are stored separately from SQL. The SQL text remains the durable source.
+
+## Stack
+
+| Layer | Tools |
+| --- | --- |
+| Backend | Laravel 13, PHP 8.3+, Inertia Laravel |
+| Frontend | Vue 3, Vite, Tailwind CSS 4 |
+| Parsing | Custom `CREATE TABLE` parser |
+| UI | lucide-vue-next |
+| Quality | PHPUnit, Pint, ESLint, Prettier |
+
+## Local Setup
+
+```bash
+composer install
+npm ci
+cp .env.example .env
+php artisan key:generate
+```
+
+Configure the database connection in `.env` before running migrations.
+
+```bash
+php artisan migrate
+```
+
+Run the full development stack:
+
+```bash
+composer dev
+```
+
+Or run the pieces separately:
+
+```bash
+php artisan serve
+npm run dev
+```
+
+## Build
+
+```bash
+npm run build
+```
+
+## Tests And Checks
+
+Run PHP tests:
+
+```bash
+composer test
+```
+
+Run PHP formatting:
+
+```bash
+composer lint
+```
+
+Run frontend checks:
+
+```bash
+npm run lint:check
+npm run format:check
+```
+
+Apply frontend fixes:
+
+```bash
+npm run lint:fix
+npm run format
+```
+
+## Current Limits
+
+- No database connection or SQL execution.
+- No migration generation beyond canonical `CREATE TABLE` output.
+- No visual diff, migration ordering, or destructive-change analysis.
+- Parser coverage is focused on table structure, not full SQL grammar.
+- Parser and serializer tests would be the highest-value next step.
 
 ## Contributing
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+The main contract is round-tripping:
 
-## Code of Conduct
+```text
+SQL -> parseSql -> schema -> serializeSchema -> SQL
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Changes to parsing or visual editing should preserve that contract for supported `CREATE TABLE` input.
 
-## Security Vulnerabilities
+Useful contributions:
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+- unit tests for parser edge cases
+- unit tests for serializer output
+- better parse warnings for unsupported DDL
+- improved auto-layout for dense schemas
+- additional column metadata that serializes cleanly
+
+Before opening a pull request, run:
+
+```bash
+composer test
+npm run lint:check
+npm run format:check
+npm run build
+```
 
 ## License
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+SQL Studio is open-sourced under the MIT license. See `LICENSE`.
